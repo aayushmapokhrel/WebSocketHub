@@ -28,13 +28,12 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 DEBUG = True
 
 ALLOWED_HOSTS = ['*']
-# Allow requests from your React development server
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
 
-# Optional: If your React app needs to send cookies, tokens, or session auth headers
+
 CORS_ALLOW_CREDENTIALS = True
 
 
