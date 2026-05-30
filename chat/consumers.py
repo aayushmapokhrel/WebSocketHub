@@ -1,14 +1,27 @@
 import json
+import uuid
+import datetime
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.utils import timezone
-from chat.models import (
-    Conversation,
-    Message,
-    MessageReadReceipt,
-    ConversationParticipant,
-)
+from chat.models import Conversation, Message, MessageReadReceipt, ConversationParticipant
 from chat.serializers import MessageSerializer
+
+
+def make_serializable(obj):
+    if isinstance(obj, dict):
+        return {k: make_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_serializable(i) for i in obj]
+    elif isinstance(obj, uuid.UUID):
+        return str(obj)
+    elif isinstance(obj, (datetime.datetime, datetime.date)):
+        return obj.isoformat()
+    elif hasattr(obj, "__str__") and not isinstance(
+        obj, (str, int, float, bool, type(None))
+    ):
+        return str(obj)
+    return obj
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -224,7 +237,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def serialize_message(self, message):
         # Refresh from DB to get all relations
         message.refresh_from_db()
-        return MessageSerializer(message).data
+        data = MessageSerializer(message).data
+        return make_serializable(dict(data))
 
     @database_sync_to_async
     def mark_message_read(self, message_id):
