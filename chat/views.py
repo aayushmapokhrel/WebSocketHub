@@ -234,8 +234,8 @@ class MessageReactionView(APIView):
         emoji = request.data.get("emoji", "").strip()
         if not emoji:
             return Response({"detail": "Emoji required."}, status=400)
-        reaction, created = MessageReaction.objects.get_or_create(
-            message=message, user=request.user, emoji=emoji
+        reaction, created = MessageReaction.objects.update_or_create(
+            message=message, user=request.user, defaults={"emoji": emoji}
         )
         return Response(
             MessageReactionSerializer(reaction).data,
