@@ -12,7 +12,7 @@ jobs:
 
     env:
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
-      DJANGO_SETTINGS_MODULE: your_project.settings
+      DJANGO_SETTINGS_MODULE: core.settings
 
     strategy:
       max-parallel: 4
