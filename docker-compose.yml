@@ -1,0 +1,130 @@
+version: '3.9'
+
+services:
+
+  # ── PostgreSQL Database ─────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: pulse_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME:-chatdb}
+      POSTGRES_USER:     ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-chatdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (Broker + Channel Layer + Cache) ──────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: pulse_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Django + Daphne (HTTP + WebSocket) ─────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulse_web
+    restart: unless-stopped
+    command: daphne -b 0.0.0.0 -p 8000 core.asgi:application
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings
+    volumes:
+      - .:/app
+      - media_files:/app/media
+      - static_files:/app/staticfiles
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Celery Worker (processes async tasks) ───────────────────────────────────
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulse_celery_worker
+    restart: unless-stopped
+    command: celery -A core worker --loglevel=info --concurrency=4 -Q default,notifications,cleanup
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings
+    volumes:
+      - .:/app
+      - media_files:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "core", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Celery Beat (periodic task scheduler) ──────────────────────────────────
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulse_celery_beat
+    restart: unless-stopped
+    command: celery -A core beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery_worker:
+        condition: service_started
+
+  # ── Flower (Celery monitoring dashboard) ───────────────────────────────────
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulse_flower
+    restart: unless-stopped
+    command: celery -A core flower --port=5555 --basic_auth=admin:admin123
+    env_file: .env
+    environment:
+      DJANGO_SETTINGS_MODULE: core.settings
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_files:
+  static_files:
