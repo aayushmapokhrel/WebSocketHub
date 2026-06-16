@@ -116,7 +116,7 @@ class MessageReaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("message", "user", "emoji")
+        unique_together = ("message", "user")
 
     def __str__(self):
         return f"{self.user} reacted {self.emoji} on {self.message_id}"

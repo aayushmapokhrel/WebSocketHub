@@ -252,7 +252,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if action == "add":
             from .models import MessageReaction
 
-            MessageReaction.objects.get_or_create(
+            MessageReaction.objects.update_or_create(
                 message_id=message_id, user=self.user, emoji=emoji
             )
         else:

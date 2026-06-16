@@ -14,6 +14,9 @@ from datetime import timedelta
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from celery.schedules import crontab
+from decouple import config
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -111,16 +114,37 @@ ASGI_APPLICATION = 'core.asgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': os.getenv(
-            'DB_ENGINE',
-            'django.db.backends.sqlite3'
-        ),
-        'NAME': BASE_DIR / os.getenv(
-            'DB_NAME',
-            'db.sqlite3'
-        ),
+        'ENGINE':   'django.db.backends.postgresql',
+        'NAME':     config('DB_NAME',     default='chatdb'),
+        'USER':     config('DB_USER',     default='postgres'),
+        'PASSWORD': config('DB_PASSWORD', default='postgres'),
+        'HOST':     config('DB_HOST',     default='db'),
+        'PORT':     config('DB_PORT',     default='5432'),
     }
 }
+
+REDIS_URL = config('REDIS_URL', default='redis://redis:6379/0')
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [REDIS_URL],
+            'capacity': 1500,
+            'expiry': 10,
+        },
+    }
+}
+
+CELERY_BROKER_URL          = config('CELERY_BROKER_URL',    default='redis://redis:6379/0')
+CELERY_RESULT_BACKEND      = config('CELERY_RESULT_BACKEND', default='redis://redis:6379/0')
+CELERY_ACCEPT_CONTENT      = ['json']
+CELERY_TASK_SERIALIZER     = 'json'
+CELERY_RESULT_SERIALIZER   = 'json'
+CELERY_TIMEZONE            = 'UTC'
+CELERY_BEAT_SCHEDULER      = 'django_celery_beat.schedulers:DatabaseScheduler'
+ 
+# Store task results in DB
+CELERY_RESULT_EXTENDED     = True
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -156,7 +180,9 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -165,4 +191,14 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,
+}
+CELERY_BEAT_SCHEDULE = {
+    'mark-inactive-users-offline': {
+        'task': 'chat.tasks.mark_inactive_users_offline',
+        'schedule': 300.0,
+    },
+    'cleanup-deleted-messages': {
+        'task': 'chat.tasks.cleanup_deleted_messages',
+        'schedule': crontab(hour=0, minute=0),
+    },
 }
