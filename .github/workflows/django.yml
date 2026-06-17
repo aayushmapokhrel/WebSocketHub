@@ -12,7 +12,6 @@ jobs:
 build:
 runs-on: ubuntu-latest
 
-```
 strategy:
   matrix:
     python-version:
@@ -51,4 +50,3 @@ steps:
   - name: Run tests
     run: |
       python manage.py test
-```
