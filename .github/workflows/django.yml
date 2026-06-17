@@ -1,52 +1,100 @@
 name: Django CI
 
 on:
-push:
-branches:
-- main
-pull_request:
-branches:
-- main
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-strategy:
-  matrix:
-    python-version:
-      - "3.12"
+    services:
+      # ── PostgreSQL service ──────────────────────────────────────────────────
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB:       chatdb
+          POSTGRES_USER:     postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
-env:
-  DJANGO_SETTINGS_MODULE: core.settings
-  SECRET_KEY: ${{ secrets.SECRET_KEY || 'django-test-secret-key-for-ci-only' }}
+      # ── Redis service ───────────────────────────────────────────────────────
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
-steps:
-  - name: Checkout code
-    uses: actions/checkout@v4
+    env:
+      DJANGO_SETTINGS_MODULE: core.settings
+      SECRET_KEY:             "django-test-secret-key-for-ci-only-not-used-in-prod"
+      DEBUG:                  "True"
+      ALLOWED_HOSTS:          "localhost,127.0.0.1"
 
-  - name: Set up Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: ${{ matrix.python-version }}
+      # PostgreSQL — point to the service above
+      DB_NAME:     chatdb
+      DB_USER:     postgres
+      DB_PASSWORD: postgres
+      DB_HOST:     localhost
+      DB_PORT:     5432
 
-  - name: Install dependencies
-    run: |
-      python -m pip install --upgrade pip
-      pip install -r requirements.txt
+      # Redis — point to the service above
+      REDIS_URL:              redis://localhost:6379/0
+      CELERY_BROKER_URL:      redis://localhost:6379/0
+      CELERY_RESULT_BACKEND:  redis://localhost:6379/0
 
-  - name: Verify SECRET_KEY
-    run: |
-      if [ -z "$SECRET_KEY" ]; then
-        echo "SECRET_KEY is empty"
-        exit 1
-      fi
-      echo "SECRET_KEY is configured"
+      CORS_ALLOWED_ORIGINS: "http://localhost:3000"
 
-  - name: Run migrations
-    run: |
-      python manage.py migrate --noinput
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  - name: Run tests
-    run: |
-      python manage.py test
+      # ── 2. Python setup ─────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # ── 3. Install dependencies ─────────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ── 4. Verify env vars are set ──────────────────────────────────────────
+      - name: Verify environment
+        run: |
+          echo "SECRET_KEY length: ${#SECRET_KEY}"
+          echo "DB_HOST: $DB_HOST"
+          echo "REDIS_URL: $REDIS_URL"
+          python -c "import django; print('Django version:', django.__version__)"
+
+      # ── 5. Run migrations ───────────────────────────────────────────────────
+      - name: Run migrations
+        run: python manage.py migrate --noinput
+
+      # ── 6. Collect static files ─────────────────────────────────────────────
+      - name: Collect static files
+        run: python manage.py collectstatic --noinput
+
+      # ── 7. Run tests ────────────────────────────────────────────────────────
+      - name: Run tests
+        run: python manage.py test --verbosity=2
+
+      # ── 8. Check for missing migrations ────────────────────────────────────
+      - name: Check for missing migrations
+        run: python manage.py migrate --check
